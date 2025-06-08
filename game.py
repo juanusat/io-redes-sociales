@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import json
+import math
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -69,16 +70,20 @@ def handle_recovery(users):
             if u['aff'][top] > np.random.rand():
                 u['connected'] = True
 
-def leader_strategy(users, subcats, pub_dur, k=2):
-    expected = {}
-    for lst in subcats.values():
-        for sc in lst:
-            payoff = sum(
-                (pub_dur * u['aff'].get(sc, 0)) - 10 * int(pub_dur * u['aff'].get(sc, 0) < 5)
-                for u in users if u['connected']
-            )
-            expected[sc] = payoff
-    chosen = sorted(expected, key=expected.get, reverse=True)[:k]
+def leader_strategy(users, subcats, pub_dur, k=2, epsilon=1):
+    all_subs = [sc for lst in subcats.values() for sc in lst]
+    if np.random.rand() < epsilon:
+        chosen = np.random.choice(all_subs, size=k, replace=False).tolist()
+    else:
+        expected = {}
+        for lst in subcats.values():
+            for sc in lst:
+                payoff = sum(
+                    (pub_dur * u['aff'].get(sc, 0)) - 10 * int(pub_dur * u['aff'].get(sc, 0) < 5)
+                    for u in users if u['connected']
+                )
+                expected[sc] = payoff
+        chosen = sorted(expected, key=expected.get, reverse=True)[:k]
     return [{'sub': sc, 'dur': pub_dur} for sc in chosen]
 
 def format_hms(seconds):
@@ -132,18 +137,25 @@ def save_results(stats, cat_dist, subcats, start, end, args):
     total_learned = sum(sum(stats['attention'][sc] for sc in subcats[c]) for c in labels) or 1
     learned_vals = [(sum(stats['attention'][sc] for sc in subcats[c]) / total_learned * 100) for c in labels]
 
+    diffs = [a - r for r, a in zip(real_vals, learned_vals)]
+    mae = sum(abs(d) for d in diffs) / len(diffs)
+    rmse = math.sqrt(sum(d**2 for d in diffs) / len(diffs))
+
     if args.c:
         print("\nResumen final de preferencias:")
         print(f"{'Categoría':<15} {'Real (%)':>10} {'Aprendida (%)':>15} {'Diferencia':>12}")
         for l, r, a in zip(labels, real_vals, learned_vals):
             diff = a - r
             print(f"{l:<15} {r:10.2f} {a:15.2f} {diff:12.2f}")
+        print(f"\nError absoluto medio (MAE): {mae:.2f}")
+        print(f"Error cuadrático medio (RMSE): {rmse:.2f}")
 
     out = Path('results')
     out.mkdir(exist_ok=True)
     idx = len(list(out.glob('prueba*'))) + 1
     dst = out / f'prueba{idx:03d}'
     dst.mkdir()
+    print("")
     print(f"Resultados guardados en: {dst}")
     plt.figure(); plt.bar(labels, real_vals); plt.xticks(rotation=45); plt.tight_layout(); plt.savefig(dst/'real_pref.jpeg')
     plt.figure(); plt.bar(labels, learned_vals); plt.xticks(rotation=45); plt.tight_layout(); plt.savefig(dst/'learned_pref.jpeg')
@@ -175,7 +187,6 @@ def main():
     end = datetime.now()
     print(f"Fin simulación: {fecha_legible(end)}")
     print(f"Tiempo real total: {int((time.time() - time.mktime(start.timetuple())))}s")
-    print("")
     save_results(stats, cat_dist, subcats, start, end, args)
 
 if __name__ == '__main__':
