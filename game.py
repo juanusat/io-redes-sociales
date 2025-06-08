@@ -3,30 +3,26 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import json
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
+
+def fecha_legible(dt):
+    return dt.strftime('%Y/%m/%d %I:%M:%S.') + f"{int(dt.microsecond/1000):03d} " + dt.strftime('%p').lower()
 
 def parse_time(s):
     unit = s[-1]
     v = int(s[:-1])
-    if unit == 's':
-        return v
-    elif unit == 'm':
-        return v * 60
-    elif unit == 'h':
-        return v * 3600
-    elif unit == 'd':
-        return v * 86400
-    else:
-        raise ValueError(f"Unidad de tiempo no reconocida: {unit}")
+    return {'s': v, 'm': v*60, 'h': v*3600, 'd': v*86400}.get(unit,
+        ValueError(f"Unidad no reconocida: {unit}"))
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', action='store_true')
-    parser.add_argument('-p', required=True, help='Ruta de distribución de población por categoría')
-    parser.add_argument('-d', default='30m', help='Duración total de simulación')
-    parser.add_argument('-v', default='5s', help='Intervalo de simulación')
+    parser.add_argument('-p', required=True, help='Ruta CSV con población por categoría')
+    parser.add_argument('-d', default='30m', help='Duración total de simulación (tiempo ficticio)')
     parser.add_argument('-m', type=int, default=100, help='Número de usuarios a simular')
+    parser.add_argument('-r', type=int, default=0, help='Intervalo de reporte en segundos reales')
+    parser.add_argument('-c', action='store_true', help='Mostrar en consola preferencias reales y aprendidas')
     return parser.parse_args()
 
 def load_categories(path):
@@ -41,13 +37,13 @@ def init_users(n, cat_dist, subcats):
     users = []
     for i in range(n):
         base = {c: max(0, np.random.normal(cat_dist.get(c, 0), 5)) for c in subcats}
-        total = sum(base.values())
+        total = sum(base.values()) or 1
         cat_aff = {c: v/total for c, v in base.items()}
         sub_aff = {}
         for c, lst in subcats.items():
             for sc in lst:
                 sub_aff[sc] = max(0, cat_aff[c] + np.random.normal(0, 0.1))
-        tot_sc = sum(sub_aff.values())
+        tot_sc = sum(sub_aff.values()) or 1
         sub_aff = {sc: v/tot_sc for sc, v in sub_aff.items()}
         users.append({'id': i, 'aff': sub_aff, 'connected': True, 'unint': 0})
     return users
@@ -65,6 +61,7 @@ def evaluate_attention(user, pub_dur, sub):
         user['unint'] = 0
     return t, left
 
+
 def handle_recovery(users):
     for u in users:
         if not u['connected']:
@@ -72,23 +69,33 @@ def handle_recovery(users):
             if u['aff'][top] > np.random.rand():
                 u['connected'] = True
 
-def system_strategy(users, subcats, pub_dur, k=2):
-    scores = {}
-    for sc_list in subcats.values():
-        for sc in sc_list:
-            total_aff = sum(u['aff'].get(sc, 0) for u in users if u['connected'])
-            scores[sc] = pub_dur * total_aff
-    chosen = sorted(scores, key=scores.get, reverse=True)[:k]
+def leader_strategy(users, subcats, pub_dur, k=2):
+    expected = {}
+    for lst in subcats.values():
+        for sc in lst:
+            payoff = sum(
+                (pub_dur * u['aff'].get(sc, 0)) - 10 * int(pub_dur * u['aff'].get(sc, 0) < 5)
+                for u in users if u['connected']
+            )
+            expected[sc] = payoff
+    chosen = sorted(expected, key=expected.get, reverse=True)[:k]
     return [{'sub': sc, 'dur': pub_dur} for sc in chosen]
 
 def format_hms(seconds):
     return str(timedelta(seconds=int(seconds)))
 
-def simulate(users, subcats, dur, step):
+def simulate(users, subcats, dur, report_interval):
     stats = {'attention': {sc: 0 for lst in subcats.values() for sc in lst}, 'count': 0}
     sim = 0
+    step = 30
+    total_steps = int(dur / step)
+    real_start = time.time()
+    next_report = report_interval
+    report_num = 1
+    step_count = 0
+
     while sim < dur:
-        pubs = system_strategy(users, subcats, pub_dur=30, k=2)
+        pubs = leader_strategy(users, subcats, pub_dur=step, k=2)
         for u in users:
             if not u['connected']:
                 continue
@@ -100,60 +107,75 @@ def simulate(users, subcats, dur, step):
                     break
         handle_recovery(users)
         sim += step
-    return stats
+        step_count += 1
+
+        if report_interval and (time.time() - real_start) >= next_report:
+            elapsed = time.time() - real_start
+            progress_pct = step_count / total_steps * 100
+            avg_time_per_step = elapsed / step_count
+            steps_left = total_steps - step_count
+            est_remain = int(steps_left * avg_time_per_step)
+            total_reports = int(dur / step / (report_interval / step)) if report_interval >= step else report_interval
+            print(
+                f"Reporte {report_num}: Paso {step_count}/{total_steps} ({progress_pct:5.2f}%) | "
+                f"Real transcurrido: {int(elapsed)}s | "
+                f"Real restante estimado: {est_remain}s"
+            )
+            report_num += 1
+            next_report += report_interval
+
+    return stats, total_steps
 
 def save_results(stats, cat_dist, subcats, start, end, args):
-    base = Path('results')
-    base.mkdir(exist_ok=True)
-    existing = sorted(base.glob('prueba*'))
-    idx = len(existing) + 1
-    dst = base / f'prueba{idx:03d}'
-    dst.mkdir()
     labels = list(subcats.keys())
-    real = [cat_dist.get(c, 0) for c in labels]
-    learned = [sum(stats['attention'][sc] for sc in subcats[c]) for c in labels]
-    plt.figure()
-    plt.bar(labels, real)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.savefig(dst / 'real_pref.jpeg')
-    plt.figure()
-    plt.bar(labels, learned)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.savefig(dst / 'learned_pref.jpeg')
+    real_vals = [cat_dist.get(c, 0) for c in labels]
+    total_learned = sum(sum(stats['attention'][sc] for sc in subcats[c]) for c in labels) or 1
+    learned_vals = [(sum(stats['attention'][sc] for sc in subcats[c]) / total_learned * 100) for c in labels]
+
+    if args.c:
+        print("\nResumen final de preferencias:")
+        print(f"{'Categoría':<15} {'Real (%)':>10} {'Aprendida (%)':>15} {'Diferencia':>12}")
+        for l, r, a in zip(labels, real_vals, learned_vals):
+            diff = a - r
+            print(f"{l:<15} {r:10.2f} {a:15.2f} {diff:12.2f}")
+
+    out = Path('results')
+    out.mkdir(exist_ok=True)
+    idx = len(list(out.glob('prueba*'))) + 1
+    dst = out / f'prueba{idx:03d}'
+    dst.mkdir()
+    print(f"Resultados guardados en: {dst}")
+    plt.figure(); plt.bar(labels, real_vals); plt.xticks(rotation=45); plt.tight_layout(); plt.savefig(dst/'real_pref.jpeg')
+    plt.figure(); plt.bar(labels, learned_vals); plt.xticks(rotation=45); plt.tight_layout(); plt.savefig(dst/'learned_pref.jpeg')
     info = {
         'config': vars(args),
         'inicio': start.isoformat(),
         'fin': end.isoformat(),
-        'duracion_simulacion': (end - start).total_seconds(),
+        'dur_sim_fict_s': (end-start).total_seconds(),
         'total_pubs': stats['count'],
-        'promedio_atencion': (sum(stats['attention'].values()) / stats['count']) if stats['count'] else 0,
-        'atencion_por_sub': stats['attention'],
-        'atencion_por_cat': {c: sum(stats['attention'][sc] for sc in subcats[c]) for c in subcats}
+        'avg_attention': sum(stats['attention'].values())/stats['count'] if stats['count'] else 0,
+        'att_sub': stats['attention'],
+        'att_cat_pct': dict(zip(labels, learned_vals))
     }
-    with open(dst / 'informe.json', 'w') as f:
+    with open(dst/'informe.json', 'w') as f:
         json.dump(info, f, indent=2)
 
 def main():
     args = parse_args()
     dur = parse_time(args.d)
-    step = parse_time(args.v)
-    steps = dur / step
-    expected_real = dur if step > 0 else 0
     start = datetime.now()
-    print(f"Inicio de simulación: {start.isoformat()}")
-    print(f"Duración ficticia: {args.d} ({dur} segundos)")
-    print(f"Velocidad: {args.v} ({step} segundos por paso)")
-    print(f"Número de pasos: {int(steps)}")
-    print(f"Tiempo real estimado: {format_hms(expected_real)}")
+    print(f"Inicio simulación: {fecha_legible(start)}")
+    print(f"Duración (ficticia): {args.d} ({dur}s) | Usuarios: {args.m} | Reporte cada: {args.r}s")
+
     subcats = load_categories(Path('data') / 'lista-categorias.csv')
     cat_dist = load_population(Path(args.p))
     users = init_users(args.m, cat_dist, subcats)
-    stats = simulate(users, subcats, dur, step)
+
+    stats, total_steps = simulate(users, subcats, dur, args.r)
     end = datetime.now()
-    print(f"Fin de simulación: {end.isoformat()}")
-    print(f"Duración real: {format_hms((end - start).total_seconds())}")
+    print(f"Fin simulación: {fecha_legible(end)}")
+    print(f"Tiempo real total: {int((time.time() - time.mktime(start.timetuple())))}s")
+    print("")
     save_results(stats, cat_dist, subcats, start, end, args)
 
 if __name__ == '__main__':
