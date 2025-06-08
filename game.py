@@ -24,6 +24,7 @@ def parse_args():
     parser.add_argument('-m', type=int, default=100, help='Número de usuarios a simular')
     parser.add_argument('-r', type=int, default=0, help='Intervalo de reporte en segundos reales')
     parser.add_argument('-c', action='store_true', help='Mostrar en consola preferencias reales y aprendidas')
+    parser.add_argument('-e', type=float, default=0.1, help='Valor de epsilon para estrategia líder (default 0.1)')
     return parser.parse_args()
 
 def load_categories(path):
@@ -89,7 +90,7 @@ def leader_strategy(users, subcats, pub_dur, k=2, epsilon=1):
 def format_hms(seconds):
     return str(timedelta(seconds=int(seconds)))
 
-def simulate(users, subcats, dur, report_interval):
+def simulate(users, subcats, dur, report_interval, epsilon=0.1):
     stats = {'attention': {sc: 0 for lst in subcats.values() for sc in lst}, 'count': 0}
     sim = 0
     step = 30
@@ -100,7 +101,7 @@ def simulate(users, subcats, dur, report_interval):
     step_count = 0
 
     while sim < dur:
-        pubs = leader_strategy(users, subcats, pub_dur=step, k=2)
+        pubs = leader_strategy(users, subcats, pub_dur=step, k=2, epsilon=epsilon)
         for u in users:
             if not u['connected']:
                 continue
@@ -183,7 +184,7 @@ def main():
     cat_dist = load_population(Path(args.p))
     users = init_users(args.m, cat_dist, subcats)
 
-    stats, total_steps = simulate(users, subcats, dur, args.r)
+    stats, total_steps = simulate(users, subcats, dur, args.r, epsilon=args.e)
     end = datetime.now()
     print(f"Fin simulación: {fecha_legible(end)}")
     print(f"Tiempo real total: {int((time.time() - time.mktime(start.timetuple())))}s")
