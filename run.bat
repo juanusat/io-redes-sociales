@@ -1,0 +1,1 @@
+python game.py -p data\poblacion-joven.csv -m 500 -d 2d -r 15 -c -g -e 0
