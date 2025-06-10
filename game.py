@@ -102,6 +102,29 @@ def simulate(users, subcats, dur, report_interval, epsilon=0.1):
     report_num = 1
     step_count = 0
 
+    # Tiempo previo para mostrar 2 publicaciones de cada subcategoría sin estrategia (epsilon=1)
+    all_subs = [sc for lst in subcats.values() for sc in lst]
+    pre_steps = 2  # 2 publicaciones por subcategoría
+    pre_dur = pre_steps * step
+    print(f"Tiempo previo para exploración sin estrategia: {pre_dur}s (mostrando 2 publicaciones por subcategoría)")
+
+    for _ in range(pre_steps):
+        pubs = [{'sub': sc, 'dur': step} for sc in all_subs]
+        for u in users:
+            if not u['connected']:
+                continue
+            for pub in pubs:
+                t, left = evaluate_attention(u, pub['dur'], pub['sub'])
+                history[pub['sub']].append(t)
+                stats['attention'][pub['sub']] += t
+                stats['count'] += 1
+                if left:
+                    break
+        handle_recovery(users)
+        sim += step
+        step_count += 1
+
+    # Simulación principal con estrategia líder y epsilon dado
     while sim < dur:
         pubs = leader_strategy_history(history, subcats, pub_dur=step, k=2, epsilon=epsilon)
         for u in users:
