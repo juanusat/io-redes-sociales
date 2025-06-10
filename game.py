@@ -75,18 +75,22 @@ def handle_recovery(users):
 
 history = defaultdict(list)
 
-def leader_strategy_history(history, subcats, pub_dur, k=2, epsilon=1):
+def leader_strategy_history(history, subcats, pub_dur, k=2, epsilon=0.1):
     all_subs = [sc for lst in subcats.values() for sc in lst]
-    
+
+    # Calcular promedio de atención para cada subcategoría, si no hay datos usar 0
+    avg_att = {
+        sc: np.mean(history[sc]) if history[sc] else 0
+        for sc in all_subs
+    }
+
+    # Probabilidad de exploración: elegir aleatoriamente k subcategorías
     if np.random.rand() < epsilon:
         chosen = np.random.choice(all_subs, size=k, replace=False).tolist()
     else:
-        avg_att = {
-            sc: np.mean(history[sc]) if history[sc] else 0
-            for sc in all_subs
-        }
+        # Explotación: elegir las k subcategorías con mayor atención promedio
         chosen = sorted(avg_att, key=avg_att.get, reverse=True)[:k]
-    
+
     return [{'sub': sc, 'dur': pub_dur} for sc in chosen]
 
 def format_hms(seconds):
