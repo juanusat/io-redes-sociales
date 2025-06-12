@@ -80,7 +80,7 @@ def leader_strategy_history(history, subcats, pub_dur, k=2, epsilon=0.1):
 
     # Calcular promedio de atención para cada subcategoría, si no hay datos usar 0
     avg_att = {
-        sc: np.mean(history[sc]) if history[sc] else 0
+        sc: np.mean(history[sc]) if history[sc] else 1
         for sc in all_subs
     }
 
