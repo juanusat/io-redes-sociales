@@ -186,15 +186,22 @@ def save_results(stats, cat_dist, subcats, start, end, args, users):
     ]
     pubs_pct = [(p / total_pubs) * 100 for p in pubs_per_cat]
 
+    # Calcular porcentaje del historial por categoría
+    total_hist = sum(len(history[sc]) for lst in subcats.values() for sc in lst) or 1
+    hist_per_cat = []
+    for c in labels:
+        count_cat = sum(len(history[sc]) for sc in subcats[c])
+        hist_per_cat.append((count_cat / total_hist) * 100)
+
     diffs = [a - m for m, a in zip(sample_vals, learned_vals)]
     mae = sum(abs(d) for d in diffs) / len(diffs)
     rmse = math.sqrt(sum(d**2 for d in diffs) / len(diffs))
 
     if args.c:
         print("\nResumen final de preferencias:")
-        print(f"{'Categoría':<15} {'Real (%)':>10} {'Muestra (%)':>12} {'Aprendida (%)':>15} {'Diferencia':>12} {'Publicaciones (%)':>18}")
-        for l, r, m, a, d, p in zip(labels, real_vals, sample_vals, learned_vals, diffs, pubs_pct):
-            print(f"{l:<15} {r:10.2f} {m:12.2f} {a:15.2f} {d:12.2f} {p:18.2f}")
+        print(f"{'Categoría':<15} {'Real (%)':>10} {'Muestra (%)':>12} {'Aprendida (%)':>15} {'Diferencia':>12} {'Publicaciones (%)':>18} {'Historial (%)':>15}")
+        for l, r, m, a, d, p, h in zip(labels, real_vals, sample_vals, learned_vals, diffs, pubs_pct, hist_per_cat):
+            print(f"{l:<15} {r:10.2f} {m:12.2f} {a:15.2f} {d:12.2f} {p:18.2f} {h:15.2f}")
         print(f"\nError absoluto medio (MAE): {mae:.2f}")
         print(f"Error cuadrático medio (RMSE): {rmse:.2f}")
 
@@ -206,15 +213,16 @@ def save_results(stats, cat_dist, subcats, start, end, args, users):
     print(f"\nResultados guardados en: {dst}")
 
     x = np.arange(len(labels))
-    width = 0.2
+    width = 0.15
 
     fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
-    bars1 = ax.bar(x - 1.5*width, real_vals,   width, label='Real')
-    bars2 = ax.bar(x - 0.5*width, sample_vals, width, label='Muestra')
-    bars3 = ax.bar(x + 0.5*width, learned_vals, width, label='Aprendida')
-    bars4 = ax.bar(x + 1.5*width, pubs_pct,    width, label='Publicaciones')
+    bars1 = ax.bar(x - 2*width, real_vals,   width, label='Real')
+    bars2 = ax.bar(x - width, sample_vals, width, label='Muestra')
+    bars3 = ax.bar(x, learned_vals, width, label='Aprendida')
+    bars4 = ax.bar(x + width, pubs_pct,    width, label='Publicaciones')
+    bars5 = ax.bar(x + 2*width, hist_per_cat, width, label='Historial')
 
-    for bars in (bars1, bars2, bars3, bars4):
+    for bars in (bars1, bars2, bars3, bars4, bars5):
         for bar in bars:
             h = bar.get_height()
             ax.annotate(f'{h:.2f}%', xy=(bar.get_x() + bar.get_width() / 2, h),
@@ -222,7 +230,7 @@ def save_results(stats, cat_dist, subcats, start, end, args, users):
                         ha='center', va='bottom')
 
     ax.set_ylabel('Porcentaje (%)')
-    all_vals = real_vals + sample_vals + learned_vals + pubs_pct
+    all_vals = real_vals + sample_vals + learned_vals + pubs_pct + hist_per_cat
     ymin, ymax = min(all_vals), max(all_vals)
     delta = (ymax - ymin) * 0.1 if ymax > ymin else ymax * 0.1
     ax.set_ylim(ymin - delta, ymax + delta)
