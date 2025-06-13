@@ -78,17 +78,14 @@ history = defaultdict(list)
 def leader_strategy_history(history, subcats, pub_dur, k=2, epsilon=0.1):
     all_subs = [sc for lst in subcats.values() for sc in lst]
 
-    # Calcular promedio de atención para cada subcategoría, si no hay datos usar 0
     avg_att = {
         sc: np.mean(history[sc]) if history[sc] else 1
         for sc in all_subs
     }
 
-    # Probabilidad de exploración: elegir aleatoriamente k subcategorías
     if np.random.rand() < epsilon:
         chosen = np.random.choice(all_subs, size=k, replace=False).tolist()
     else:
-        # Explotación: elegir las k subcategorías con mayor atención promedio
         chosen = sorted(avg_att, key=avg_att.get, reverse=True)[:k]
 
     return [{'sub': sc, 'dur': pub_dur} for sc in chosen]
@@ -106,9 +103,8 @@ def simulate(users, subcats, dur, report_interval, epsilon=0.1):
     report_num = 1
     step_count = 0
 
-    # Tiempo previo para mostrar 2 publicaciones de cada subcategoría sin estrategia (epsilon=1)
     all_subs = [sc for lst in subcats.values() for sc in lst]
-    pre_steps = 2  # 2 publicaciones por subcategoría
+    pre_steps = 2
     pre_dur = pre_steps * step
     print(f"Tiempo previo para exploración sin estrategia: {pre_dur}s")
 
@@ -128,7 +124,6 @@ def simulate(users, subcats, dur, report_interval, epsilon=0.1):
         sim += step
         step_count += 1
 
-    # Simulación principal con estrategia líder y epsilon dado
     while sim < dur:
         pubs = leader_strategy_history(history, subcats, pub_dur=step, k=2, epsilon=epsilon)
         for u in users:
@@ -155,7 +150,6 @@ def simulate(users, subcats, dur, report_interval, epsilon=0.1):
             print(
                 f"Reporte {report_num}: Paso {step_count}/{total_steps} ({progress_pct:5.2f}%) | "
                 f"Real transcurrido: {int(elapsed)}s | "
-                f"Real restante estimado: {est_remain}s"
             )
             report_num += 1
             next_report += report_interval
@@ -178,7 +172,6 @@ def save_results(stats, cat_dist, subcats, start, end, args, users):
         for c in labels
     ]
 
-    # Calcular porcentaje de publicaciones mostradas por categoría
     total_hist = sum(len(history[sc]) for lst in subcats.values() for sc in lst) or 1
     hist_per_cat = []
     for c in labels:
@@ -207,7 +200,6 @@ def save_results(stats, cat_dist, subcats, start, end, args, users):
 
     x = np.arange(len(labels))
     width = 0.2
-
     fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
     bars1 = ax.bar(x - 1.5*width, real_vals,   width, label='Real')
     bars2 = ax.bar(x - 0.5*width, sample_vals, width, label='Muestra')
